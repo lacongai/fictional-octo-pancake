@@ -25,45 +25,26 @@ usage_counter = 0
 usage_lock = threading.Lock()
 MAX_USAGE = 40
 
-@app.route('/')
-def home():
-    return "I'am HenTaiz API"
-    
-    
 def load_tokens(server_name):
     try:
-        # mapping server -> link GitHub raw
+        # mapping server -> file
         mapping = {
-            "IND": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_ind.json",
-            "BR": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json",
-            "US": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json",
-            "SAC": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json",
-            "NA": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json",
-            "VN": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_vn.json",
-            "BD": "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_bd.json",
+            "IND": "token_ind.json",
+            "BR": "token_br.json",
+            "US": "token_br.json",
+            "SAC": "token_br.json",
+            "NA": "token_br.json",
+            "VN": "token_vn.json",
+            "BD": "token_bd.json",
         }
 
-        file_name = mapping.get(
-            server_name,
-            "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_bd.json"
-        )
+        # nếu không có trong mapping thì mặc định lấy token_bd.json
+        file_name = mapping.get(server_name, "token_bd.json")
 
-        tokens = None
+        with open(file_name, "r", encoding="utf-8") as f:
+            tokens = json.load(f)
 
-        if file_name.startswith("http://") or file_name.startswith("https://"):
-            # load từ GitHub raw
-            resp = requests.get(file_name, timeout=10)
-            resp.raise_for_status()
-            tokens = resp.json()
-        else:
-            # load file local
-            if not os.path.exists(file_name):
-                app.logger.error(f"Token file not found: {file_name}")
-                return None
-            with open(file_name, "r", encoding="utf-8") as f:
-                tokens = json.load(f)
-
-        app.logger.info(f"Loaded {len(tokens)} tokens for server {server_name} ({file_name})")
+        app.logger.info(f"Loaded tokens for server {server_name} ({file_name})")
         return tokens
 
     except Exception as e:
@@ -107,7 +88,7 @@ async def send_request(encrypted_uid, token, url):
             'Expect': "100-continue",
             'X-Unity-Version': "2018.4.11f1",
             'X-GA': "v1 1",
-            'ReleaseVersion': "OB50"
+            'ReleaseVersion': "OB49"
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=edata, headers=headers, timeout=10) as response:
@@ -178,22 +159,22 @@ def make_request(encrypt, server_name, token):
             url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
         elif server_name in {"BR", "US", "SAC", "NA"}:
             url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
+        elif server_name in {"VN"}:
+            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
         else:
             url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
         edata = bytes.fromhex(encrypt)
         headers = {
-        "Expect": "100-continue",
-        "Authorization": f"Bearer {token}",
-        "X-Unity-Version": "2018.4.11f1",
-        "X-GA": "v1 1",
-        "ReleaseVersion": "OB50",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": "16",
-        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 9; SM-N975F Build/PI)",
-        "Host": "clientbp.ggblueshark.com",
-        "Connection": "close",
-        "Accept-Encoding": "gzip, deflate, br"
-    }
+            'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
+            'Connection': "Keep-Alive",
+            'Accept-Encoding': "gzip",
+            'Authorization': f"Bearer {token}",
+            'Content-Type': "application/x-www-form-urlencoded",
+            'Expect': "100-continue",
+            'X-Unity-Version': "2018.4.11f1",
+            'X-GA': "v1 1",
+            'ReleaseVersion': "OB50"
+        }
         response = requests.post(url, data=edata, headers=headers, verify=False, timeout=10)
         hex_data = response.content.hex()
         binary = bytes.fromhex(hex_data)
@@ -222,7 +203,226 @@ def get_region_by_uid(uid):
     # Try external API with retries
     for attempt in range(3):
         try:
-            response = requests.get(f"https://danger-info-alpha.vercel.app/accinfo?uid={uid}&key=DANGERxINFO", timeout=5)
+        
+
+1 file changed
++3
+-1
+lines changed
+Search within code
+ 
+‎app.py‎
++3
+-1
+Lines changed: 3 additions & 1 deletion
+Original file line number	Diff line number	Diff line change
+@@ -1,443 +1,445 @@
+from flask import Flask, request, jsonify
+import asyncio
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from google.protobuf.json_format import MessageToJson
+import binascii
+import aiohttp
+import requests
+import json
+import like_pb2
+import like_count_pb2
+import uid_generator_pb2
+from google.protobuf.message import DecodeError
+import threading
+import logging
+import time
+
+app = Flask(__name__)
+
+# Configure logging
+app.logger.setLevel(logging.DEBUG)
+
+# Global usage counters
+usage_counter = 0
+usage_lock = threading.Lock()
+MAX_USAGE = 40
+
+def load_tokens(server_name):
+    try:
+        # mapping server -> file
+        mapping = {
+            "IND": "token_ind.json",
+            "BR": "token_br.json",
+            "US": "token_br.json",
+            "SAC": "token_br.json",
+            "NA": "token_br.json",
+            "VN": "token_vn.json",
+            "BD": "token_bd.json",
+        }
+
+        # nếu không có trong mapping thì mặc định lấy token_bd.json
+        file_name = mapping.get(server_name, "token_bd.json")
+
+        with open(file_name, "r", encoding="utf-8") as f:
+            tokens = json.load(f)
+
+        app.logger.info(f"Loaded tokens for server {server_name} ({file_name})")
+        return tokens
+
+    except Exception as e:
+        app.logger.error(
+            f"Error loading tokens for server {server_name}: {str(e)}",
+            exc_info=True
+        )
+        return None
+
+def encrypt_message(plaintext):
+    try:
+        key = b'Yg&tc%DEuh6%Zc^8'
+        iv = b'6oyZDr22E3ychjM%'
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        padded_message = pad(plaintext, AES.block_size)
+        encrypted_message = cipher.encrypt(padded_message)
+        return binascii.hexlify(encrypted_message).decode('utf-8')
+    except Exception as e:
+        app.logger.error(f"Encryption failed: {str(e)}", exc_info=True)
+        return None
+
+def create_protobuf_message(user_id, region):
+    try:
+        message = like_pb2.like()
+        message.uid = int(user_id)
+        message.region = region
+        return message.SerializeToString()
+    except Exception as e:
+        app.logger.error(f"Error creating protobuf message: {str(e)}", exc_info=True)
+        return None
+
+async def send_request(encrypted_uid, token, url):
+    try:
+        edata = bytes.fromhex(encrypted_uid)
+        headers = {
+            'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
+            'Connection': "Keep-Alive",
+            'Accept-Encoding': "gzip",
+            'Authorization': f"Bearer {token}",
+            'Content-Type': "application/x-www-form-urlencoded",
+            'Expect': "100-continue",
+            'X-Unity-Version': "2018.4.11f1",
+            'X-GA': "v1 1",
+            'ReleaseVersion': "OB49"
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=edata, headers=headers, timeout=10) as response:
+                if response.status != 200:
+                    app.logger.error(f"Request failed with status code: {response.status}")
+                    return response.status
+                return await response.text()
+    except Exception as e:
+        app.logger.error(f"Exception in send_request: {str(e)}", exc_info=True)
+        return None
+
+async def send_multiple_requests(uid, server_name, url):
+    try:
+        region = server_name
+        protobuf_message = create_protobuf_message(uid, region)
+        if protobuf_message is None:
+            app.logger.error("Failed to create protobuf message.")
+            return None
+        encrypted_uid = encrypt_message(protobuf_message)
+        if encrypted_uid is None:
+            app.logger.error("Encryption failed.")
+            return None
+        tasks = []
+        tokens = load_tokens(server_name)
+        if tokens is None:
+            app.logger.error("Failed to load tokens.")
+            return None
+        for i in range(100):
+            token = tokens[i % len(tokens)]["token"]
+            tasks.append(send_request(encrypted_uid, token, url))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Update usage counter
+        with usage_lock:
+            global usage_counter
+            usage_counter += 1
+            app.logger.info(f"Usage counter incremented to {usage_counter}")
+
+        return results
+    except Exception as e:
+        app.logger.error(f"Exception in send_multiple_requests: {str(e)}", exc_info=True)
+        return None
+
+def create_protobuf(uid):
+    try:
+        message = uid_generator_pb2.uid_generator()
+        message.saturn_ = int(uid)
+        message.garena = 1
+        return message.SerializeToString()
+    except Exception as e:
+        app.logger.error(f"Error creating uid protobuf: {str(e)}", exc_info=True)
+        return None
+
+def enc(uid):
+    try:
+        protobuf_data = create_protobuf(uid)
+        if protobuf_data is None:
+            return None
+        encrypted_uid = encrypt_message(protobuf_data)
+        return encrypted_uid
+    except Exception as e:
+        app.logger.error(f"Error in enc: {str(e)}", exc_info=True)
+        return None
+
+def make_request(encrypt, server_name, token):
+    try:
+        if server_name == "IND":
+            url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
+        elif server_name in {"BR", "US", "SAC", "NA"}:
+            url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
+        elif server_name in {"VN"}:
+            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
+        else:
+            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
+        edata = bytes.fromhex(encrypt)
+        headers = {
+            'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
+            'Connection': "Keep-Alive",
+            'Accept-Encoding': "gzip",
+            'Authorization': f"Bearer {token}",
+            'Content-Type': "application/x-www-form-urlencoded",
+            'Expect': "100-continue",
+            'X-Unity-Version': "2018.4.11f1",
+            'X-GA': "v1 1",
+            'ReleaseVersion': "OB50"
+        }
+        response = requests.post(url, data=edata, headers=headers, verify=False, timeout=10)
+        hex_data = response.content.hex()
+        binary = bytes.fromhex(hex_data)
+        decode = decode_protobuf(binary)
+        if decode is None:
+            app.logger.error("Protobuf decoding returned None.")
+        return decode
+    except Exception as e:
+        app.logger.error(f"Error in make_request: {str(e)}", exc_info=True)
+        return None
+
+def decode_protobuf(binary):
+    try:
+        items = like_count_pb2.Info()
+        items.ParseFromString(binary)
+        return items
+    except DecodeError as e:
+        app.logger.error(f"Error decoding Protobuf data: {str(e)}", exc_info=True)
+        return None
+    except Exception as e:
+        app.logger.error(f"Unexpected error during protobuf decoding: {str(e)}", exc_info=True)
+        return None
+
+def get_region_by_uid(uid):
+    """Fetch player region with retries and fallback to server checks"""
+    # Try external API with retries
+    for attempt in range(3):
+        try:
+            response = requests.get(f"https://regoin-api.vercel.app/region?uid={uid}", timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 region = data.get("region", "").upper()
@@ -232,26 +432,26 @@ def get_region_by_uid(uid):
             app.logger.warning(f"API attempt {attempt+1} failed with status {response.status_code}")
         except Exception as e:
             app.logger.warning(f"API attempt {attempt+1} failed: {str(e)}")
-        time.sleep(0.5)
+        time.sleep(0.5)  # Short delay between retries
 
     # Fallback to direct server checks
     app.logger.warning("External API failed, using direct server checks")
     servers = [
-        ("IND", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_ind.json"),
-        ("BR", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
-        ("US", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
-        ("SAC", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
-        ("NA", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
-        ("BD", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_bd.json"),
-        ("VN", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_vn.json")
+        ("IND", "token_ind.json"),
+        ("BR", "token_br.json"),
+        ("US", "token_bd.json"),
+        ("SAC", "token_bd.json"),
+        ("NA", "token_bd.json"),
+        ("BD", "token_bd.json"),
+        ("VN", "token_vn.json")
     ]
 
     for server_name, token_file in servers:
         try:
-            # Load tokens từ GitHub
-            tokens = requests.get(token_file, timeout=5).json()
-            if not tokens:
-                continue
+            with open(token_file, "r") as f:
+                tokens = json.load(f)
+                if not tokens:
+                    continue
 
             token = tokens[0]['token']
             encrypted_uid = enc(uid)
@@ -260,14 +460,16 @@ def get_region_by_uid(uid):
 
             if server_name == "IND":
                 url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
-            elif server_name in {"BR", "US", "SAC", "NA"}:
+            elif server_name == {"BR", "US", "SAC", "NA"}:
                 url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
+            elif server_name == "VN":
+                url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
             else:
                 url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
 
             edata = bytes.fromhex(encrypted_uid)
             headers = {
-                'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; SM-N975F Build/PI)",
+                'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
                 'Authorization': f"Bearer {token}",
                 'Content-Type': "application/x-www-form-urlencoded",
             }
@@ -358,6 +560,8 @@ def handle_requests():
             url = "https://client.ind.freefiremobile.com/LikeProfile"
         elif server_name in {"BR", "US", "SAC", "NA"}:
             url = "https://client.us.freefiremobile.com/LikeProfile"
+        elif server_name == "VN":
+            url = "https://clientbp.ggblueshark.com/LikeProfile"
         else:
             url = "https://clientbp.ggblueshark.com/LikeProfile"
 
