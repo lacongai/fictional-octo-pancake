@@ -92,7 +92,7 @@ async def send_request(encrypted_uid, token, url):
             'Expect': "100-continue",
             'X-Unity-Version': "2018.4.11f1",
             'X-GA': "v1 1",
-            'ReleaseVersion': "OB49"
+            'ReleaseVersion': "OB50"
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=edata, headers=headers, timeout=10) as response:
@@ -124,13 +124,13 @@ async def send_multiple_requests(uid, server_name, url):
             token = tokens[i % len(tokens)]["token"]
             tasks.append(send_request(encrypted_uid, token, url))
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
+        
         # Update usage counter
         with usage_lock:
             global usage_counter
             usage_counter += 1
             app.logger.info(f"Usage counter incremented to {usage_counter}")
-
+            
         return results
     except Exception as e:
         app.logger.error(f"Exception in send_multiple_requests: {str(e)}", exc_info=True)
@@ -218,7 +218,7 @@ def get_region_by_uid(uid):
         except Exception as e:
             app.logger.warning(f"API attempt {attempt+1} failed: {str(e)}")
         time.sleep(0.5)  # Short delay between retries
-
+    
     # Fallback to direct server checks
     app.logger.warning("External API failed, using direct server checks")
     servers = [
@@ -230,19 +230,19 @@ def get_region_by_uid(uid):
         ("BD", "token_bd.json"),
         ("VN", "token_vn.json")
     ]
-
+    
     for server_name, token_file in servers:
         try:
             with open(token_file, "r") as f:
                 tokens = json.load(f)
                 if not tokens:
                     continue
-
+                    
             token = tokens[0]['token']
             encrypted_uid = enc(uid)
             if not encrypted_uid:
                 continue
-
+                
             if server_name == "IND":
                 url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
             elif server_name == {"BR", "US", "SAC", "NA"}:
@@ -259,14 +259,14 @@ def get_region_by_uid(uid):
                 'Content-Type': "application/x-www-form-urlencoded",
             }
             response = requests.post(url, data=edata, headers=headers, timeout=5, verify=False)
-
+            
             if response.status_code == 200:
                 app.logger.info(f"Found valid region: {server_name}")
                 return server_name
-
+                
         except Exception as e:
             app.logger.error(f"Server check for {server_name} failed: {str(e)}")
-
+    
     app.logger.error("All region detection methods failed")
     return None
 
@@ -297,7 +297,7 @@ def handle_requests():
                 "status": "Failed",
                 "usage": f"{usage_counter}/{MAX_USAGE}"
             }), 400
-
+        
         app.logger.info(f"Using server region: {server_name} for UID: {uid}")
 
         tokens = load_tokens(server_name)
@@ -328,7 +328,7 @@ def handle_requests():
                 "status": "Failed",
                 "usage": f"{usage_counter}/{MAX_USAGE}"
             }), 500
-
+            
         try:
             jsone = MessageToJson(before)
             data_before = json.loads(jsone)
@@ -337,7 +337,7 @@ def handle_requests():
         except Exception as e:
             app.logger.error(f"Error parsing initial data: {str(e)}")
             before_like = 0
-
+            
         app.logger.info(f"Likes before command: {before_like}")
 
         # Determine endpoint URL
@@ -349,7 +349,7 @@ def handle_requests():
             url = "https://clientbp.ggblueshark.com/LikeProfile"
         else:
             url = "https://clientbp.ggblueshark.com/LikeProfile"
-
+            
         # Send like requests
         asyncio.run(send_multiple_requests(uid, server_name, url))
 
@@ -362,7 +362,7 @@ def handle_requests():
                 "status": "Failed",
                 "usage": f"{usage_counter}/{MAX_USAGE}"
             }), 500
-
+            
         try:
             jsone_after = MessageToJson(after)
             data_after = json.loads(jsone_after)
@@ -372,14 +372,14 @@ def handle_requests():
             app.logger.error(f"Error parsing final data: {str(e)}")
             after_like = before_like
             player_name = "Unknown"
-
+            
         like_given = after_like - before_like
         status = 1 if like_given > 0 else 0
-
+        
         # Get current usage
         with usage_lock:
             current_usage = usage_counter
-
+            
         result = {
             "LikesGivenByAPI": like_given,
             "LikesbeforeCommand": before_like,
@@ -390,7 +390,7 @@ def handle_requests():
         }
         app.logger.info(f"Request processed successfully for UID: {uid}")
         return jsonify(result)
-
+        
     except Exception as e:
         app.logger.error(f"Error processing request: {str(e)}", exc_info=True)
         return jsonify({
@@ -444,8 +444,6 @@ def api_update():
     except Exception as e:
         app.logger.error(f"Error checking update: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-        
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False, threaded=True)
-    
-    
