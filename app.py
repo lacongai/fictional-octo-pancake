@@ -178,8 +178,6 @@ def make_request(encrypt, server_name, token):
             url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
         elif server_name in {"BR", "US", "SAC", "NA"}:
             url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
-        elif server_name == "VN":
-            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
         else:
             url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
         edata = bytes.fromhex(encrypt)
@@ -234,26 +232,26 @@ def get_region_by_uid(uid):
             app.logger.warning(f"API attempt {attempt+1} failed with status {response.status_code}")
         except Exception as e:
             app.logger.warning(f"API attempt {attempt+1} failed: {str(e)}")
-        time.sleep(0.5)  # Short delay between retries
+        time.sleep(0.5)
 
     # Fallback to direct server checks
     app.logger.warning("External API failed, using direct server checks")
     servers = [
-        ("IND", "token_ind.json"),
-        ("BR", "token_br.json"),
-        ("US", "token_bd.json"),
-        ("SAC", "token_bd.json"),
-        ("NA", "token_bd.json"),
-        ("BD", "token_bd.json"),
-        ("VN", "token_vn.json")
+        ("IND", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_ind.json"),
+        ("BR", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
+        ("US", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
+        ("SAC", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
+        ("NA", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_br.json"),
+        ("BD", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_bd.json"),
+        ("VN", "https://raw.githubusercontent.com/lacongai/fictional-octo-pancake/main/token_vn.json")
     ]
 
     for server_name, token_file in servers:
         try:
-            with open(token_file, "r") as f:
-                tokens = json.load(f)
-                if not tokens:
-                    continue
+            # Load tokens từ GitHub
+            tokens = requests.get(token_file, timeout=5).json()
+            if not tokens:
+                continue
 
             token = tokens[0]['token']
             encrypted_uid = enc(uid)
@@ -262,10 +260,8 @@ def get_region_by_uid(uid):
 
             if server_name == "IND":
                 url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
-            elif server_name == {"BR", "US", "SAC", "NA"}:
+            elif server_name in {"BR", "US", "SAC", "NA"}:
                 url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
-            elif server_name == "VN":
-                url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
             else:
                 url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
 
@@ -362,8 +358,6 @@ def handle_requests():
             url = "https://client.ind.freefiremobile.com/LikeProfile"
         elif server_name in {"BR", "US", "SAC", "NA"}:
             url = "https://client.us.freefiremobile.com/LikeProfile"
-        elif server_name == "VN":
-            url = "https://clientbp.ggblueshark.com/LikeProfile"
         else:
             url = "https://clientbp.ggblueshark.com/LikeProfile"
 
